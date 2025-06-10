@@ -54,6 +54,7 @@ class ParameterSetup(object):
         # for signal processing
         self.windowSizeInSec = d['windowSizeInSec']   # size of window in time for estimating the state
         self.samplingFreq = d['samplingFreq']   # sampling frequency of data
+        self.stepSizeInSec = d['stepSizeInSec'] # stepsize of window
 
         if 'graphUpdateFreqInHz' in d:
             self.graphUpdateFreqInHz = d['graphUpdateFreqInHz']
