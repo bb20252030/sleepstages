@@ -23,12 +23,13 @@
 "extractorType" : "rawDataWithSTFT",
 "lightPeriodStartTime": "09:00:00.000",
 
-"classifierType" : "deep",
+"classifierType" : "UTSN",
 "networkType" : "cnn_lstm",
 "classifierParams" : [64],
 
-"windowSizeInSec" : 10,
+"windowSizeInSec" : 4,
 "samplingFreq" : 128,
+"stepSizeInSec": 1,
 
 "graphUpdateFreqInHz" : 1,
 
