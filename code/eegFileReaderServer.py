@@ -102,6 +102,8 @@ class EEGFileReaderServer:
         # print('eeg.shape[0] =', self.eeg.shape[0])
         # print('eegLen =', self.eegLen)
         # print('wsizeInTimePoints =', self.wsizeInTimePoints)
+        last_logged_percent = 0
+        
         for startSamplePoint in range(0, self.eegLen, self.wsizeInTimePoints):
             now = datetime.now()
             endSamplePoint = startSamplePoint + self.wsizeInTimePoints
@@ -131,3 +133,8 @@ class EEGFileReaderServer:
             # print('sending dataToAIClient to client')
             # print('in server, dataToAIClient =', dataToAIClient)
             self.client.process(dataToAIClient)
+
+            progress_percent = round(startSamplePoint / self.eegLen * 100)
+            if progress_percent >= last_logged_percent + 5:
+                print(f"[INFO] Progress: {progress_percent}%")
+                last_logged_percent = progress_percent
