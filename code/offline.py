@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 import sys
 import time
+import datetime
+import argparse
 from os import listdir
 from os.path import split, splitext, isfile
 from parameterSetup import ParameterSetup
@@ -13,21 +15,31 @@ class RemOfflineApplication:
 
     def __init__(self, args):
         self.args = args
-        # self.classifier_type = 'UTSN-L'
-        pass
 
     def start(self):
-        channelOpt = 1
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--samplingFreq', type=int, default=128, help='set sampling frequency')
+        parser.add_argument('--windowSizeInSec', type=int, default=4, help='set size of window')
+        parser.add_argument('--stepSizeInSec', type=int, default=1, help='set size of sliding-step')
+        parser.add_argument('--postdir', type=str, default="../data/aipost", help='Path to EEGdata(postDir)')
+        parser.add_argument('--output_the_same_fileID', action='store_true', help='Force using fixed file ID for output')
+        args_parsed = parser.parse_args(self.args[1:])
+
         params = ParameterSetup()
+
         self.recordWaves = params.writeWholeWaves
         self.extractorType = params.extractorType
         self.classifierType = params.classifierType
-        self.postDir = params.postDir
+        self.postDir = args_parsed.postdir if args_parsed.postdir else params.postDir
         self.predDir = params.predDir
         self.finalClassifierDir = params.finalClassifierDir
-        observed_samplingFreq = params.samplingFreq
-        observed_epochTime = params.windowSizeInSec
 
+        observed_samplingFreq = args_parsed.samplingFreq
+        observed_epochTime = args_parsed.windowSizeInSec
+        stepSizeInSec = args_parsed.stepSizeInSec
+        postDir = args_parsed.postdir
+        useFixedID = args_parsed.output_the_same_fileID
         # eegFilePath = args[1]
         # inputFileID = splitext(split(eegFilePath)[1])[0]
         postFiles = listdir(self.postDir)
@@ -43,20 +55,15 @@ class RemOfflineApplication:
                 if not isfile(predFileFullPath):
                     fileCnt += 1
                     print('  processing ' + inputFileID)
+                    print("Requested classifierType =", self.classifierType)
                     try:
                         classifierID, model_samplingFreq, model_epochTime = selectClassifierID(self.finalClassifierDir, self.classifierType, requested_samplingFreq=observed_samplingFreq, requested_epochTime=observed_epochTime)
-                        if len(self.args) > 1:
-                            if self.args[1] == '--output_the_same_fileID':
-                                self.client = ClassifierClient(self.recordWaves, self.extractorType, self.classifierType, classifierID, inputFileID=inputFileID,
-                                                                samplingFreq=model_samplingFreq, epochTime=model_epochTime)
-                            else:
-                                if self.args[1] == '--samplingFreq' and len(self.args) > 2:
-                                    observed_samplingFreq = int(self.args[2])
-                                self.client = ClassifierClient(self.recordWaves, self.extractorType, self.classifierType, classifierID,
-                                    samplingFreq=model_samplingFreq, epochTime=model_epochTime)
+                        if useFixedID:
+                            self.client = ClassifierClient(self.recordWaves, self.extractorType, self.classifierType, classifierID="W98DEW", inputFileID=inputFileID,
+                                                                samplingFreq=model_samplingFreq, epochTime=model_epochTime, stepSizeInSec=stepSizeInSec)
                         else:
                             self.client = ClassifierClient(self.recordWaves, self.extractorType, self.classifierType, classifierID,
-                                samplingFreq=model_samplingFreq, epochTime=model_epochTime)
+                                samplingFreq=model_samplingFreq, epochTime=model_epochTime, stepSizeInSec=stepSizeInSec)
                         self.client.predictionStateOn()
                         self.client.hasGUI = False
                         # sys.stdout.write('classifierClient started by ' + str(channelOpt) + ' channel.')
@@ -79,9 +86,13 @@ class RemOfflineApplication:
 
 
 if __name__ == '__main__':
+    start_time = time.time()
     args = sys.argv
     mainapp = RemOfflineApplication(args)
     mainapp.start()
+    end_time = time.time()
+    elapsed = end_time - start_time
+    print(f"[INFO] Total runtime: {str(datetime.timedelta(seconds=int(elapsed)))}")
     # while True:
         # print('*')
         # time.sleep(5)
