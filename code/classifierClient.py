@@ -15,7 +15,7 @@ from statistics import standardize, standardizer
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 class ClassifierClient:
-    def __init__(self, recordWaves, extractorType, classifierType, classifierID, inputFileID='', offsetWindowID=0, chamberID=-1, samplingFreq=0, epochTime=0):
+    def __init__(self, recordWaves, extractorType, classifierType, classifierID, inputFileID='', offsetWindowID=0, chamberID=-1, samplingFreq=0, epochTime=0, stepSizeInSec=0):
         self.recordWaves = recordWaves
         self.inputFileID = inputFileID
         self.chamberID = chamberID
@@ -30,9 +30,16 @@ class ClassifierClient:
             self.samplePointNum = self.params.windowSizeInSec * self.samplingFreq  # the number of sample points received at once
         else:
             self.samplePointNum = epochTime * self.samplingFreq  # the number of sample points received at once
+        if stepSizeInSec == 0:
+            self.stepSizeInSec = self.params.stepSizeInSec
+        else:
+            self.stepSizeInSec = stepSizeInSec
+        self.stepSizeInPoint = self.stepSizeInSec * self.samplingFreq
+        print(f"Using stepSizeInSec = {stepSizeInSec if stepSizeInSec > 0 else self.params.stepSizeInSec}, stepSizeInPoint = {self.stepSizeInPoint}")
         self.graphUpdateFreqInHz = self.params.graphUpdateFreqInHz   # frequency of updating the graph (if set to 1, redraws graph every second)
         assert self.samplingFreq / self.graphUpdateFreqInHz == np.floor(self.samplingFreq / self.graphUpdateFreqInHz)   # should be an integer
         self.updateGraph_samplePointNum = int(self.samplingFreq / self.graphUpdateFreqInHz)
+        assert self.stepSizeInPoint > 0 and self.stepSizeInPoint <= self.samplePointNum
 
         # print('self.updateGraph_samplePointNum =', self.updateGraph_samplePointNum)
         self.hasGUI = True
@@ -158,7 +165,8 @@ class ClassifierClient:
         paramFileName = 'params.' + str(classifierID) + '.json'
         finalClassifierDir = self.params.finalClassifierDir
         paramsForNetworkStructure = ParameterSetup(paramDir=finalClassifierDir, paramFileName=paramFileName)
-        classifier = DeepClassifier(self.classLabels, classifierID=classifierID, paramsForDirectorySetup=self.params, paramsForNetworkStructure=paramsForNetworkStructure)
+        paramsForNetworkStructure.stepSizeInSec = self.params.stepSizeInSec
+        classifier = DeepClassifier(self.classLabels, classifierID=classifierID, paramsForDirectorySetup=self.params, paramsForNetworkStructure=paramsForNetworkStructure)   
         model_path = finalClassifierDir + '/weights.' + str(classifierID) + '.pkl'
         print('model_path = ', model_path)
         classifier.load_weights(model_path)
@@ -236,19 +244,23 @@ class ClassifierClient:
 
         one_record_partial = np.array((standardized_eegFragment, standardized_ch2Fragment)).transpose()
         raw_one_record_partial = np.array((eegFragment, ch2Fragment)).transpose()
-
-        self.one_record[self.sampleID:(self.sampleID+self.updateGraph_samplePointNum),:] = one_record_partial
-        self.raw_one_record[self.sampleID:(self.sampleID+self.updateGraph_samplePointNum),:] = raw_one_record_partial
         one_record_for_graph_partial = self.normalize_one_record_partial_for_graph(raw_one_record_partial, self.past_eegSegment, self.past_ch2Segment)
-        self.one_record_for_graph[self.sampleID:(self.sampleID+self.updateGraph_samplePointNum),:] = one_record_for_graph_partial
+
+        #sliding window control
+        self.one_record = np.vstack((self.one_record, one_record_partial))[-self.samplePointNum:, :]
+        self.raw_one_record = np.vstack((self.raw_one_record, raw_one_record_partial))[-self.samplePointNum:, :]
+        self.one_record_for_graph = np.vstack((self.one_record_for_graph, one_record_for_graph_partial))[-self.samplePointNum:, :]
 
         if self.hasGUI:
             self.updateGraphPartially(self.one_record_for_graph)
         self.sampleID += self.updateGraph_samplePointNum
+        #print(self.sampleID)
 
         stagePrediction = '-'
-        if self.sampleID == self.samplePointNum:   # reached to the end of the epoch
-            self.sampleID = 0
+        if self.sampleID >= self.samplePointNum:   # reached to the end of the epoch
+            #print(self.stepSizeInPoint)
+            self.sampleID -= self.stepSizeInPoint
+            #print(self.sampleID)
             eegSegment =  self.one_record[:,0]
             raw_eegSegment = self.raw_one_record[:,0]
             self.past_eegSegment = np.r_[self.past_eegSegment, raw_eegSegment]
