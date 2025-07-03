@@ -21,7 +21,7 @@ def classifierMetadata(finalClassifierDir, classifierID):
     return sampFreq, epochTime
 '''
 
-def selectClassifierID(finalClassifierDir, requested_classifierType, requested_samplingFreq=0, requested_epochTime=0):
+def selectClassifierID(finalClassifierDir, requested_classifierType, requested_samplingFreq=0, requested_epochTime=0, forced_classifierID=None):
     classifierTypeFileName = 'classifierTypes.csv'
     classifierDict = {}
     # print('requested_samplingFreq =', requested_samplingFreq, 'requested_epochTime =', requested_epochTime)
@@ -54,6 +54,13 @@ def selectClassifierID(finalClassifierDir, requested_classifierType, requested_s
             #### needs to prioritize a model with the correct samplingFrequency.
             #### use a model with a samplingFreq different from requested_samplingFreq by downsampling,
             #### only if there's no model with the corresponding samplingFreq.
+    if forced_classifierID is not None:
+        for cid, ctype, sf, et in classifierMetadataList:
+            if cid == forced_classifierID:
+                # 不管 samplingFreq/epochTime 请求什么，都用 CSV 里这一行
+                return cid, sf, et
+        # 如果没找到，报错提示一下
+        raise ValueError(f"Forced classifierID={forced_classifierID} 不在 {classifierTypeFileName} 中")
 
     if requested_samplingFreq == 0 and requested_epochTime == 0:
         filtered_metadataList = list(filter_by_classifierType(classifierMetadataList, requested_classifierType))

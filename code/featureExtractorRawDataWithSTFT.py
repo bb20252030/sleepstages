@@ -18,7 +18,7 @@ class FeatureExtractorRawDataWithSTFT(FeatureExtractor):
         self.extractorType = 'rawDataWithSTFT'
         self.lightPeriodStartTime = params.lightPeriodStartTime
         self.wholeBand = params.wholeBand
-        self.binNum4spectrum = round(self.wholeBand.getBandWidth() / params.binWidth4freqHisto)
+        self.binNum4spectrum = round(self.wholeBand.getBandWidth() / params.binWidth4freqHisto) #11/0.5 = 22
         # self.binArray4spectrum = np.linspace(self.wholeBand.bottom, self.wholeBand.top, self.binNum4spectrum + 1)
 
     def filtering(self, Zxx, freqs, lowerFreq, upperFreq):
@@ -27,7 +27,7 @@ class FeatureExtractorRawDataWithSTFT(FeatureExtractor):
 
     def binning(self, Zxx, freqs, freqBinNum):
         binSize = int(np.floor(1.0 * len(Zxx) / freqBinNum))
-        Zxx_binned = np.array([np.sum(np.abs(Zxx[(binID*binSize):((binID+1)*binSize)]),axis=0) for binID in range(freqBinNum)])
+        Zxx_binned = np.array([np.sum(np.abs(Zxx[(binID*binSize):((binID+1)*binSize)]),axis=0) for binID in range(freqBinNum)]) 
         freqs_binned = np.array([np.mean(freqs[(binID*binSize):((binID+1)*binSize)],axis=0) for binID in range(freqBinNum)])
         return Zxx_binned, freqs_binned
 

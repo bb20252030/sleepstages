@@ -35,6 +35,27 @@ class ClassifierClient:
         else:
             self.stepSizeInSec = stepSizeInSec
         self.stepSizeInPoint = self.stepSizeInSec * self.samplingFreq
+        self.numBags = self.params.windowSizeInSec // self.stepSizeInSec  # 4 bags
+
+        # Initialize data bags
+        self.data_bags = []
+        self.bag_sample_counts = []
+        self.bag_segment_ids = []
+
+        for i in range(self.numBags):
+            self.data_bags.append({
+                'one_record': np.empty((0, 2)),  # two channels(EEG,EMG)
+                'raw_one_record': np.empty((0, 2)),
+                'one_record_for_graph': np.empty((0, 2)),
+                'timestamps': []
+            })
+            self.bag_sample_counts.append(0)
+            self.bag_segment_ids.append(0)
+
+        # currently using bag index
+        self.current_bag_idx = 0
+        self.global_sample_count = 0
+
         print(f"Using stepSizeInSec = {stepSizeInSec if stepSizeInSec > 0 else self.params.stepSizeInSec}, stepSizeInPoint = {self.stepSizeInPoint}")
         self.graphUpdateFreqInHz = self.params.graphUpdateFreqInHz   # frequency of updating the graph (if set to 1, redraws graph every second)
         assert self.samplingFreq / self.graphUpdateFreqInHz == np.floor(self.samplingFreq / self.graphUpdateFreqInHz)   # should be an integer
@@ -170,7 +191,7 @@ class ClassifierClient:
         model_path = finalClassifierDir + '/weights.' + str(classifierID) + '.pkl'
         print('model_path = ', model_path)
         classifier.load_weights(model_path)
-        self.stagePredictor = StagePredictor(paramsForNetworkStructure, self.extractor, classifier, finalClassifierDir, classifierID, self.params.markovOrderForPrediction)
+        self.stagePredictor = StagePredictor(paramsForNetworkStructure, self.extractor, classifier, finalClassifierDir, classifierID, self.params.markovOrderForPrediction, self.stepSizeInSec)
 
     def normalize_eeg(self, eegFragment, ch2Fragment, past_eegSegment, past_ch2Segment):
         one_record_partial = np.zeros((self.updateGraph_samplePointNum, 2))
@@ -246,69 +267,108 @@ class ClassifierClient:
         raw_one_record_partial = np.array((eegFragment, ch2Fragment)).transpose()
         one_record_for_graph_partial = self.normalize_one_record_partial_for_graph(raw_one_record_partial, self.past_eegSegment, self.past_ch2Segment)
 
-        #sliding window control
-        self.one_record = np.vstack((self.one_record, one_record_partial))[-self.samplePointNum:, :]
-        self.raw_one_record = np.vstack((self.raw_one_record, raw_one_record_partial))[-self.samplePointNum:, :]
-        self.one_record_for_graph = np.vstack((self.one_record_for_graph, one_record_for_graph_partial))[-self.samplePointNum:, :]
+        # add data to all using bags
+        for bag_idx in range(self.numBags):
+            # check if it should add data
+            bag_start_time = bag_idx * self.stepSizeInPoint
+            if self.global_sample_count >= bag_start_time:
+                self._add_data_to_bag(bag_idx, one_record_partial, raw_one_record_partial, 
+                                    one_record_for_graph_partial, timeStampSegment)
+                
+                # check if it fills one epoch
+                if self.bag_sample_counts[bag_idx] >= self.samplePointNum:
+                    prediction = self._process_bag_epoch(bag_idx, timeStampSegment)
+                    if prediction:
+                        self.y_pred_L.append((bag_idx, prediction))
+        
+        self.global_sample_count += self.updateGraph_samplePointNum
 
-        if self.hasGUI:
-            self.updateGraphPartially(self.one_record_for_graph)
-        self.sampleID += self.updateGraph_samplePointNum
-        #print(self.sampleID)
+        # return newest prediction(if there is)
+        if self.y_pred_L:
+            return self.y_pred_L[-1][1]  # 返回最新的预测
+        else:
+            return 0
 
-        stagePrediction = '-'
-        if self.sampleID >= self.samplePointNum:   # reached to the end of the epoch
-            #print(self.stepSizeInPoint)
-            self.sampleID -= self.stepSizeInPoint
-            #print(self.sampleID)
-            eegSegment =  self.one_record[:,0]
-            raw_eegSegment = self.raw_one_record[:,0]
-            self.past_eegSegment = np.r_[self.past_eegSegment, raw_eegSegment]
-            if self.showCh2 or self.useCh2ForReplace:
-                ch2Segment = self.one_record[:,1]
-                raw_ch2Segment = self.raw_one_record[:,1]
-                self.past_ch2Segment = np.r_[self.past_ch2Segment, raw_ch2Segment]
 
+        
+    def _add_data_to_bag(self, bag_idx, one_record_partial, raw_one_record_partial, one_record_for_graph_partial, timeStampSegment):
+        """add data to certain bag"""
+        bag = self.data_bags[bag_idx]
+
+        #using sliding window to update data in bag
+        bag['one_record'] = np.vstack((bag['one_record'], one_record_partial))[-self.samplePointNum:, :]
+        bag['raw_one_record'] = np.vstack((bag['raw_one_record'], raw_one_record_partial))[-self.samplePointNum:, :]
+        bag['one_record_for_graph'] = np.vstack((bag['one_record_for_graph'], one_record_for_graph_partial))[-self.samplePointNum:, :]
+        bag['timestamps'].extend(timeStampSegment)
+        bag['timestamps'] = bag['timestamps'][-self.samplePointNum:]
+
+        self.bag_sample_counts[bag_idx] = min(self.bag_sample_counts[bag_idx] + self.updateGraph_samplePointNum, self.samplePointNum)
+
+    def _process_bag_epoch(self, bag_idx, timeStampSegment):
+        """process prepared epoch"""
+        bag = self.data_bags[bag_idx]
+
+        # extract data
+        eegSegment = bag['one_record'][:, 0]
+        raw_eegSegment = bag['raw_one_record'][:, 0]
+
+        # update history data
+        self.past_eegSegment = np.r_[self.past_eegSegment, raw_eegSegment]
+
+        if self.showCh2 or self.useCh2ForReplace:
+            ch2Segment = bag['one_record'][:, 1]
+            raw_ch2Segment = bag['raw_one_record'][:, 1]
+            self.past_ch2Segment = np.r_[self.past_ch2Segment, raw_ch2Segment]
+
+        # start prediction
+        replaced = False
+        if self.predictionState:
+            if self.connected2serialClient:
+                    # Encode to binary for serial connection.
+                    serialClient = self.serialClient
+                    # print('in classifierClient.process(), serialClient = self.serialClient')
+                    stagePrediction_replaced = 'w' if stagePrediction == '?' else stagePrediction
+                    # print(' -> sending', stagePrediction_replaced, 'to serialClient')
+                    serialClient.write(stagePrediction_replaced.encode('utf-8'))
+
+            # use stagePredictor
+            # stageEstimate is one of ['w', 'n', 'r']
             # print('self.predictionState =', self.predictionState)
-            replaced = False
-            if self.predictionState:
-                # stageEstimate is one of ['w', 'n', 'r']
-                if self.connected2serialClient:
-                    serialClient.write(b'c')
-                    print('clear sent to serialClient to reset')
+            stagePrediction = self.stagePredictor.predict(
+                eegSegment, bag['timestamps'], 
+                self.params.stageLabels4evaluation, 
+                self.params.stageLabel2stageID,
+                bag_idx=bag_idx  # transfer bag_idx for lstm
+            )
 
-                stagePrediction = self.stagePredictor.predict(eegSegment, timeStampSegment, self.params.stageLabels4evaluation, self.params.stageLabel2stageID)
+            stagePrediction_before_overwrite = stagePrediction
+            if self.useCh2ForReplace:
+                stagePrediction, replaced = self.replaceToWake(stagePrediction, ch2Segment)
+        else:
+            stagePrediction = '?'
 
-                # print('stagePrediction =', stagePrediction)
-                stagePrediction_before_overwrite = stagePrediction
-                if self.useCh2ForReplace:
-                    stagePrediction, replaced = self.replaceToWake(stagePrediction, ch2Segment)
-            else:
-                stagePrediction = '?'
+        # update GUI and write in files...
+        if self.hasGUI:
+            self.updateGraph(self.bag_segment_ids[bag_idx], stagePrediction, 
+                           stagePrediction_before_overwrite, replaced)
+        
+        if self.predictionState:
+            # if the prediction is P, then use the previous one
+            if stagePrediction == 'P':
+                # print('stagePrediction == P for wID = ' + str(wID))
+                if len(self.y_pred_L) > 0:
+                    stagePrediction = self.y_pred_L[-1][1]
+                    # print('stagePrediction replaced to ' + stagePrediction + ' at ' + str(segmentID))
+                else:
+                    stagePrediction = 'M'
+            self.writeToPredFile(stagePrediction, stagePrediction_before_overwrite, bag['timestamps'])
 
-            # update prediction results in graphs by moving all graphs one window
-            if self.hasGUI:
-                self.updateGraph(self.segmentID, stagePrediction, stagePrediction_before_overwrite, replaced)
+        # prepare to next epoch：sliding window
+        shift_amount = self.stepSizeInPoint * self.numBags
+        self.bag_sample_counts[bag_idx] = self.samplePointNum - shift_amount
+        self.bag_segment_ids[bag_idx] += 1
 
-            # write out to file
-            if self.predictionState:
-                #----
-                # if the prediction is P, then use the previous one
-                if stagePrediction == 'P':
-                    # print('stagePrediction == P for wID = ' + str(wID))
-                    if len(self.y_pred_L) > 0:
-                        finalClassifierDirPrediction = self.y_pred_L[len(self.y_pred_L)-1]
-                        # print('stagePrediction replaced to ' + stagePrediction + ' at ' + str(segmentID))
-                    else:
-                        stagePrediction = 'M'
-
-                # print('pred = ', stagePrediction)
-                self.writeToPredFile(stagePrediction, stagePrediction_before_overwrite, timeStampSegment)
-                self.y_pred_L.append(stagePrediction)
-
-                #------------------------------------------
-                # writes to waveOutputFile
-                if self.recordWaves:
+        if self.recordWaves:
                     # records raw data without standardization
                     eegOutputLimitNum = eegSegment.shape[0]
                     # below is for testing, print out only first 5 amplitudes
@@ -344,23 +404,9 @@ class ClassifierClient:
                     self.waveOutputFile.flush()
                     self.waveOutputFile_standardized.flush()
 
-                #------------------------------------------
-                # Encode to binary for serial connection.
-                # print('stagePrediction =', stagePrediction)
-                if self.connected2serialClient:
-                    serialClient = self.serialClient
-                    # print('in classifierClient.process(), serialClient = self.serialClient')
-                    stagePrediction_replaced = 'w' if stagePrediction == '?' else stagePrediction
-                    # print(' -> sending', stagePrediction_replaced, 'to serialClient')
-                    serialClient.write(stagePrediction_replaced.encode('utf-8'))
+        return stagePrediction
 
-            self.one_record = np.zeros((self.samplePointNum, 2))
-            self.raw_one_record = np.zeros((self.samplePointNum, 2))
-            self.one_record_for_graph = np.zeros((self.samplePointNum, 2))
-            self.segmentID += 1
-            return stagePrediction
-        else:
-            return 0
+
 
     def writeToPredFile(self, prediction, prediction_before_overwrite, timeStampSegment):
         prediction_in_capital = self.params.capitalize_for_writing_prediction_to_file[prediction]

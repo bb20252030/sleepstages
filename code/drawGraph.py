@@ -3,15 +3,17 @@ import sys
 import os
 import random
 from matplotlib.backends import qt_compat
-use_pyside = qt_compat.QT_API == qt_compat.QT_API_PYSIDE
-if use_pyside:
-    from PySide import QtWidgets, QtCore
-else:
-    from PyQt5 import QtWidgets, QtCore
+
+from PyQt5 import QtCore, QtWidgets
 # import matplotlib
-# Make sure that we are using QT5
+# use_pyside = qt_compat.QT_API == qt_compat.QT_API_PYSIDE
+# if use_pyside:
+#    from PySide import QtWidgets, QtCore
+# else:
+#    from PyQt5 import QtWidgets, QtCore
+# # Make sure that we are using QT5
 # matplotlib.use('Qt5Agg')
-# from PyQt5 import QtCore, QtWidgets
+
 import numpy as np
 from numpy import arange, sin, pi
 # from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas

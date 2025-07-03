@@ -610,9 +610,13 @@ class DeepClassifier():
         print('loading weights in deepClassifier.py from', weight_path)
         self.model = self.generateModel()
         if torch.cuda.is_available():
-            self.model.load_state_dict(torch.load(weight_path))
+            state = torch.load(weight_path, weights_only=False)
         else:
-            self.model.load_state_dict(torch.load(weight_path, map_location='cpu'))
+            state = torch.load(weight_path, map_location='cpu', weights_only=False)
+        self.model.load_state_dict(state)
+        # PyTorch 2.6+ 默认 weights_only=True，会拒绝加载非纯张量 pickle
+        # 我们这里明确用 weights_only=False 来兼容老格式
+        
 
     #-----------------------
     def predict(self, featuresBySamples):
@@ -621,6 +625,13 @@ class DeepClassifier():
         with torch.no_grad():
 
             featureTensor = featuresBySamples
+
+            if featureTensor.ndim == 1:
+                featureTensor = featureTensor.reshape(1,1,1,-1)
+            elif featureTensor.ndim == 2:
+                featureTensor = featureTensor.reshape(1, featureTensor.shape[0], 1, featureTensor.shape[1])
+            elif featureTensor.ndim == 3:
+                featureTensor = featureTensor.reshape(1, *featureTensor.shape)
 
             if self.networkType == 'cnn_lstm' and len(featureTensor.shape) == 3:
                 featureTensor = np.array([featureTensor])

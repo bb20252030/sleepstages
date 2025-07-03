@@ -8,7 +8,7 @@ from stageLabelAndOneHot import constructPastStagesOneHots, oneHot2stageLabel
 
 class StagePredictor(object):
 
-    def __init__(self, params, extractor, classifier, classifierDir, classifierID, markovOrderForPrediction):
+    def __init__(self, params, extractor, classifier, classifierDir, classifierID, markovOrderForPrediction, stepSizeInSec):
 
         # parameters for signal processing
         self.params = params
@@ -21,6 +21,8 @@ class StagePredictor(object):
         self.pastStageLookUpNum = params.pastStageLookUpNum
         ### self.stageNum = len(params.stageLabel2stageID)
         self.stageNum = params.maximumStageNum
+        self.numBags = windowSizeInSec // stepSizeInSec
+        self.pastFeatures_bags = [[] for _ in range(self.numBags)]
 
         # dictionary for label correction
         self.labelCorrectionDict = params.labelCorrectionDict
@@ -234,7 +236,7 @@ class StagePredictor(object):
         # print('y_pred_L = ' + str(y_pred_L))
         return y_pred_L
 
-    def predict(self, one_record, timeStampSegment, stageLabels4evaluation, stageLabel2stageID, wID=-1):
+    def predict(self, one_record, timeStampSegment, stageLabels4evaluation, stageLabel2stageID, bag_idx=0,wID=-1):
 
         # print('one_record = ' + str(one_record))
         # print('one_record.shape = ' + str(one_record.shape))
@@ -317,10 +319,16 @@ class StagePredictor(object):
         self.stageCnt = self.stageCnt + 1
         # print('features.shape =', features.shape)
         if self.params.classifierType == 'deep' and self.params.networkType == 'cnn_lstm':
+            #use past features of certain bag
+            self.pastFeatures_L = self.pastFeatures_bags[bag_idx]
             self.pastFeatures_L.append(features)
-            # print('len(self.pastFeatures_L) =', len(self.pastFeatures_L))
+
+            #keep lstm_length
             if len(self.pastFeatures_L) > self.params.torch_lstm_length:
-                self.pastFeatures_L = self.pastFeatures_L[1:]
+                self.pastFeatures_bags[bag_idx] = self.pastFeatures_L[1:]
+                self.pastFeatures_L = self.pastFeatures_bags[bag_idx]
+
+            #if reach the length, predict
             if len(self.pastFeatures_L) >= self.params.torch_lstm_length:
                 features_with_past = np.array(self.pastFeatures_L)
                 # print('features_with_past.shape =', features_with_past.shape)

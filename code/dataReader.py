@@ -107,7 +107,8 @@ class DataReader:
         stage_fp = codecs.open(filePath, 'r', 'shift_jis')
         for i in range(self.metaDataLineNumUpperBound4stage):    # skip lines that describes metadata
             line = stage_fp.readline()
-            if line.startswith(self.cueWhereStageDataStarts):
+            #if line.startswith(self.cueWhereStageDataStarts):
+            if line.startswith('Time'): #if bug happens, try this
                 break
             if i == self.metaDataLineNumUpperBound4stage - 1:
                 # print('stage file without metadata header, but it\'s okay.')
@@ -127,7 +128,7 @@ class DataReader:
                 elems = line.split(',')
             else:
                 elems = line.split('\t')
-            # print('   elems[0] = ' + elems[0] + ", elems[1] = " + elems[1])
+            #print('   elems[0] = ' + elems[0] + ", elems[1] = " + elems[1])
             # print('elems[0] = ' + elems[0])
             # print('   elems[3] = ' + elems[3] + ", elems[4] = " + elems[4])
             # print('line =', line)

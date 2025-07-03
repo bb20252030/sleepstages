@@ -29,7 +29,7 @@
 
 "windowSizeInSec" : 4,
 "samplingFreq" : 128,
-"stepSizeInSec": 4,
+"stepSizeInSec": 1,
 
 "writeWholeWaves" : 0,
 "computeKS" : 0,
