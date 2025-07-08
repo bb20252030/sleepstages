@@ -238,6 +238,9 @@ class StagePredictor(object):
 
     def predict(self, one_record, timeStampSegment, stageLabels4evaluation, stageLabel2stageID, bag_idx=0,wID=-1):
 
+        # check use softlabel or not
+        use_softlabel = getattr(self.params, 'use_softlabel', 0)
+
         # print('one_record = ' + str(one_record))
         # print('one_record.shape = ' + str(one_record.shape))
         if self.useEMG == 0:
@@ -331,10 +334,19 @@ class StagePredictor(object):
             #if reach the length, predict
             if len(self.pastFeatures_L) >= self.params.torch_lstm_length:
                 features_with_past = np.array(self.pastFeatures_L)
-                # print('features_with_past.shape =', features_with_past.shape)
-                y_pred_orig = self.classifier.predict(features_with_past)
+
+                if use_softlabel:
+                    # get prediction and softmax probability
+                    y_pred_orig, y_pred_softmax = self.classifier.predict(features_with_past, return_softmax=True)
+                else:
+                    #only get prediction
+                    # print('features_with_past.shape =', features_with_past.shape)
+                    y_pred_orig = self.classifier.predict(features_with_past, return_softmax=True)
+                    y_pred_softmax = None
             else:
+                #if not reach the length, return ?
                 y_pred_orig = '?'
+                y_pred_softmax = None
         else:
             #---------------
             # predict using the trained classifier
@@ -392,16 +404,46 @@ class StagePredictor(object):
         if self.params.classifierType == 'deep':
             if type(y_pred_modified) != list and type(y_pred_modified) != np.ndarray:
                 if y_pred_modified == '?':
-                    y_pred = y_pred_modified
+                    y_pred_hard = y_pred_modified
                 else:
-                    y_pred = correct_label(y_pred_modified)
+                    y_pred_hard = correct_label(y_pred_modified)
             else:
-                y_pred = correct_label(y_pred_modified)
+                y_pred_hard = correct_label(y_pred_modified)
             # print('after labelCorrection, y_pred =', y_pred)
             # print('y_pred = ' + str(y_pred))
         else:
-            y_pred = self.params.labelCorrectionDict[y_pred_modified[0]]
+            y_pred_hard = self.params.labelCorrectionDict[y_pred_modified[0]]
+
+        #get softlabel dict(if use_softlabel and label is not ?)
+        if use_softlabel and y_pred_softmax is not None:
+            y_pred_soft = self.generate_soft_label_dict(y_pred_softmax)
+        else:
+            y_pred_soft = None
 
         # print(y_pred, end='')
         self.pastStages_L.append(y_pred_modified[0])
-        return y_pred
+
+        if use_softlabel:
+            return y_pred_hard, y_pred_soft
+        else:
+            return y_pred_hard
+        
+    def generate_soft_label_dict(self, softmax_probs):
+        """
+        transfer the softmax probability to dict with stage
+        """
+        soft_label_dict = {}
+
+        #get label list of current evaluation
+        current_labels = self.params.stageLabels4evaluation
+
+        # make sure probability array length align with label numbers
+        if len(softmax_probs) != len(current_labels):
+            print(f"Warning: softmax output length ({len(softmax_probs)}) doesn't match label count ({len(current_labels)})")
+            return {}
+        
+        # create mapping from label to probability
+        for i, label in enumerate(current_labels):
+            soft_label_dict[label] = float(softmax_probs[i])
+
+        return soft_label_dict

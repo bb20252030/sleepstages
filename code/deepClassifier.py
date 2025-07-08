@@ -619,7 +619,7 @@ class DeepClassifier():
         
 
     #-----------------------
-    def predict(self, featuresBySamples):
+    def predict(self, featuresBySamples, return_softmax=True):
         # with self.graph.as_default():
         featuresBySamples = featuresBySamples.astype(np.double)
         with torch.no_grad():
@@ -655,4 +655,30 @@ class DeepClassifier():
                 # pred_labels = self.model(feature.to(self.device))
             pred_labels = [self.model(feature).cpu().numpy() for feature in pred_loader][0]
 
-        return pred_labels
+            if return_softmax:
+                #compute softmax probability
+                #print(f"Debug: pred_labels shape = {pred_labels.shape}")
+                #print(f"Debug: pred_labels = {pred_labels}")
+                pred_logits_tensor = torch.tensor(pred_labels, dtype=torch.float)
+                #print(f"Debug: pred_logits_tensor shape = {pred_logits_tensor.shape}")
+
+                # try different dim
+                if pred_logits_tensor.ndim == 1:
+                    # 1-dim，directly apply softmax
+                    pred_softmax = torch.nn.functional.softmax(pred_logits_tensor, dim=0).numpy()
+                elif pred_logits_tensor.ndim == 2:
+                    # 2-dim，apply softmax in the last dim
+                    pred_softmax = torch.nn.functional.softmax(pred_logits_tensor, dim=-1).numpy()
+                    # if batch_size=1, use first row
+                    if pred_softmax.shape[0] == 1:
+                        pred_softmax = pred_softmax[0]
+                else:
+                    print(f"Warning: Unexpected tensor dimension: {pred_logits_tensor.ndim}")
+                    pred_softmax = torch.nn.functional.softmax(pred_logits_tensor, dim=-1).numpy()
+
+                #print(f"Debug: pred_softmax shape = {pred_softmax.shape}")
+                #print(f"Debug: pred_softmax = {pred_softmax}")
+                return pred_labels, pred_softmax
+            else:
+                return pred_labels
+        

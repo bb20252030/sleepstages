@@ -177,6 +177,9 @@ class ClassifierClient:
         self.predFile = open(self.params.predDir + '/' + self.predFileID + '_pred.txt', 'w')
         self.predFileBeforeOverwrite = open(self.params.predDir + '/' + self.predFileID + '_pred_before_overwrite.txt', 'w')
         self.predFileWithTimeStamps = open(self.params.predDir + '/' + self.predFileID + '_pred_with_timestamps.txt', 'w')
+        if getattr(self.params, 'use_softlabel', 0):
+            print('writes softlabels to ' + self.params.predDir + '/' + self.predFileID + '_softlabel.txt')
+            self.predFileSoftLabel = open(self.params.predDir + '/' + self.predFileID + '_softlabel.txt', 'w')
 
         self.max_storage_for_standardization = self.samplePointNum * self.params.standardization_max_storage_window_num
         self.standardizer_eeg = standardizer(self.max_storage_for_standardization)
@@ -334,34 +337,45 @@ class ClassifierClient:
             # use stagePredictor
             # stageEstimate is one of ['w', 'n', 'r']
             # print('self.predictionState =', self.predictionState)
-            stagePrediction = self.stagePredictor.predict(
+            if getattr(self.params, 'use_softlabel', 0):
+                stagePrediction_hard, stagePrediction_soft = self.stagePredictor.predict(
+                eegSegment, bag['timestamps'], 
+                self.params.stageLabels4evaluation, 
+                self.params.stageLabel2stageID,
+                bag_idx=bag_idx  # transfer bag_idx for lstm
+            )
+            else:
+                stagePrediction_hard = self.stagePredictor.predict(
                 eegSegment, bag['timestamps'], 
                 self.params.stageLabels4evaluation, 
                 self.params.stageLabel2stageID,
                 bag_idx=bag_idx  # transfer bag_idx for lstm
             )
 
-            stagePrediction_before_overwrite = stagePrediction
+            stagePrediction_before_overwrite = stagePrediction_hard
             if self.useCh2ForReplace:
-                stagePrediction, replaced = self.replaceToWake(stagePrediction, ch2Segment)
+                stagePrediction, replaced = self.replaceToWake(stagePrediction_hard, ch2Segment)
         else:
-            stagePrediction = '?'
+            stagePrediction_hard = '?'
 
         # update GUI and write in files...
         if self.hasGUI:
-            self.updateGraph(self.bag_segment_ids[bag_idx], stagePrediction, 
+            self.updateGraph(self.bag_segment_ids[bag_idx], stagePrediction_hard, 
                            stagePrediction_before_overwrite, replaced)
         
         if self.predictionState:
             # if the prediction is P, then use the previous one
-            if stagePrediction == 'P':
+            if stagePrediction_hard == 'P':
                 # print('stagePrediction == P for wID = ' + str(wID))
                 if len(self.y_pred_L) > 0:
-                    stagePrediction = self.y_pred_L[-1][1]
+                    stagePrediction_hard = self.y_pred_L[-1][1]
                     # print('stagePrediction replaced to ' + stagePrediction + ' at ' + str(segmentID))
                 else:
-                    stagePrediction = 'M'
-            self.writeToPredFile(stagePrediction, stagePrediction_before_overwrite, bag['timestamps'])
+                    stagePrediction_hard = 'M'
+            if getattr(self.params, 'use_softlabel', 0):
+                self.writeToPredFile(stagePrediction_hard, stagePrediction_soft, stagePrediction_before_overwrite, bag['timestamps'])
+            else:
+                self.writeToPredFile(stagePrediction_hard, None, stagePrediction_before_overwrite, bag['timestamps'])
 
         # prepare to next epoch：sliding window
         shift_amount = self.stepSizeInPoint * self.numBags
@@ -408,8 +422,8 @@ class ClassifierClient:
 
 
 
-    def writeToPredFile(self, prediction, prediction_before_overwrite, timeStampSegment):
-        prediction_in_capital = self.params.capitalize_for_writing_prediction_to_file[prediction]
+    def writeToPredFile(self, prediction_hard, prediction_soft, prediction_before_overwrite, timeStampSegment):
+        prediction_in_capital = self.params.capitalize_for_writing_prediction_to_file[prediction_hard]
         self.predFile.write(prediction_in_capital + '\n')   # add at the end of the file
         self.predFile.flush()
         prediction_before_overwrite_in_capital = self.params.capitalize_for_writing_prediction_to_file[prediction_before_overwrite]
@@ -417,6 +431,36 @@ class ClassifierClient:
         self.predFileBeforeOverwrite.flush()
         self.predFileWithTimeStamps.write(prediction_in_capital + ',' + timeStampSegment[0] + '\n')   # add at the end of the file
         self.predFileWithTimeStamps.flush()
+        
+        #write in soft label(only when used)
+        if getattr(self.params, 'use_softlabel', 0):
+            self.writeSoftLabelToFile(prediction_soft, timeStampSegment)
+
+    def writeSoftLabelToFile(self, soft_label_dict, timeStampSegment):
+        """
+        write soft label into another file
+        format:timestamp,S:0.1,W:0.7,R:0.2,...
+        if soft_label_dict is Non, write special characters
+        """
+        if not hasattr(self, 'predFileSoftLabel'):
+            soft_label_filename = self.params.predDir + '/' + self.predFileID + '_softlabel.txt'
+            self.predFileSoftLabel = open(soft_label_filename, 'a')
+
+        # construct soft label str
+        soft_label_str = timeStampSegment[0] + ','
+
+        if soft_label_dict is None:
+            #? or other situations
+            soft_label_str += '?'
+        else:
+            soft_label_pairs = []
+            for label, prob in soft_label_dict.items():
+                soft_label_pairs.append(f"{label}:{prob:.4f}")
+            soft_label_str += ','.join(soft_label_pairs)
+
+        self.predFileSoftLabel.write(soft_label_str + '\n')
+        self.predFileSoftLabel.flush()
+
 
     def replaceToWake(self, prediction, signal):
         self.currentCh2Intensity = self.getCh2Intensity(signal)

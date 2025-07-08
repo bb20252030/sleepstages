@@ -117,6 +117,7 @@
 "useCh2ForReplace" : 1,
 "ch2IntensityFunc" : "max_mean",
 "ch2_thresh_default" : 1.0,
+"use_softlabel" : 1.0,
 
 "ch2_mean_init" : 0.7620,
 "ch2_variance_init" : 0.6962,
