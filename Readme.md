@@ -161,6 +161,13 @@ The "weights" file contains weight parameters obtained from training. The "param
 ## NREM Substate Analysis (This Work)
 This repository additionally contains a dedicated pipeline for unsupervised discovery of NREM sleep substates using HMMs, built on top of the original sleep-stage classification framework.
 
+## Required packages
+Some packages are additionally required for hmmtraining and visualization.
+
+```
+pip install hmmlearn umap
+```
+
 ### Scope of this work
 - Full-record feature extraction using pretrained LSTM-based models
 - Unsupervised HMM-based NREM substate discovery
@@ -180,6 +187,16 @@ https://github.com/bb20252030/sleepstages/tree/NREMsubstates
 ### Minimal usage
 python extractFeaturesforCluster.py
 python HMMtraining.py
+
+This pipeline assumes the following local directory structure:
+- `aipost/`
+  Contains raw EEG data.
+- `labels/`  
+  Contains sleep-epochs label files.
+  These files are dataset-specific and are not included in the repository.
+
+- `intermediate/`  
+  Stores intermediate outputs such as extracted feature files (e.g., "NR03extracted-LSTM-FullRecord" in extractFeaturesforCluster.py).
 
 
 ## Using a newly trained model in prediction
