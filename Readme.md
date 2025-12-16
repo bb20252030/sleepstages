@@ -158,6 +158,30 @@ trainClassifier.py reads "features" and writes files starting with "weights", "p
 
 The "weights" file contains weight parameters obtained from training. The "params" file is a copy of "params.json" in "data/pickled" that is intended to save the parameters used for training the classifier. "files_used_for_training" indicates which recordings were used for training that classifier. These files are excluded when testing the classifier.
 
+## NREM Substate Analysis (This Work)
+This repository additionally contains a dedicated pipeline for unsupervised discovery of NREM sleep substates using HMMs, built on top of the original sleep-stage classification framework.
+
+### Scope of this work
+- Full-record feature extraction using pretrained LSTM-based models
+- Unsupervised HMM-based NREM substate discovery
+- Mouse-wise cross-validation and model selection (AIC/BIC)
+- Robust saving of core results for reproducibility
+
+Downstream analyses (e.g., spectral or temporal characterization of states) are task- and hypothesis-specific and are therefore not included.
+
+### Code location
+The core code for this work is located in the following branch:
+
+- **Branch**: `NREMsubstates`
+- **Tag**: `v1.0-method-core`
+
+https://github.com/bb20252030/sleepstages/tree/NREMsubstates
+
+### Minimal usage
+python extractFeaturesforCluster.py
+python HMMtraining.py
+
+
 ## Using a newly trained model in prediction
 
 To have a newly trained model in applicational programs (offline.py, online.py and app.py), files params.json and weights.pkl must be copied from data/params to data/finalclassifier.
